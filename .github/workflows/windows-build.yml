@@ -1,0 +1,52 @@
+name: Build Windows download
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check installer prerequisites
+        shell: powershell
+        run: .\Install.ps1 -CheckOnly -PythonPath (Get-Command python.exe).Source
+      - name: Verify Python dependency installation
+        shell: powershell
+        run: .\Install.ps1 -SkipModels -NoLaunch -PythonPath (Get-Command python.exe).Source
+      - name: Compile Windows desktop app
+        shell: powershell
+        run: .\desktop\Build.ps1
+      - name: Run synthetic regression tests
+        shell: powershell
+        run: |
+          & .\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependency installation failed.' }
+          & .\.venv\Scripts\python.exe -m pytest tests -q
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
+          node --test tests/test_passage_editor.js
+          if ($LASTEXITCODE -ne 0) { throw 'Passage editor tests failed.' }
+      - name: Check Python syntax and build clean archive
+        shell: powershell
+        run: |
+          python -m py_compile server.py audio_engine.py languages.py model_setup.py notes.py exports.py
+          if ($LASTEXITCODE -ne 0) { throw 'Python syntax check failed.' }
+          python tools/package_release.py --output dist/MeetingStudio-1.1.1-Windows-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Release packaging failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeetingStudio-1.1.1-Windows-x64
+          path: dist/MeetingStudio-1.1.1-Windows-x64.zip*
+          if-no-files-found: error

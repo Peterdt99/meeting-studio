@@ -1,0 +1,9 @@
+# Tested with 64-bit CPython 3.12 on Windows. Models download separately.
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32
+faster-whisper==1.2.1
+sherpa-onnx==1.13.8
+python-docx==1.2.0
+numpy==2.5.3
+av==18.1.0

@@ -1,0 +1,41 @@
+# Local recordings, documents, model downloads and WebView profile
+/data/
+/runtime.json
+/.venv/
+/venv/
+/env/
+/models/
+/recordings/
+/exports/
+/work/
+/.env
+/.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/tests/*-state-*/
+/tests/synthetic-example.md
+*.log
+*.pid
+*.part
+*.tmp
+# Generated desktop files belong in clean release artifacts.
+/Meeting Studio.exe
+/Meeting Studio.ico
+/*.dll
+/desktop/.build/
+/dist/
+/build/
+*.zip
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.webm
+*.mp4
+*.docx
+*.pdf
+.DS_Store
+Thumbs.db

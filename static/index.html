@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5ef">
+  <title>Meeting Studio</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/passage_editor.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Recording library">
+      <a class="brand" href="/" aria-label="Meeting Studio home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>Meeting<br><strong>Studio</strong></span></a>
+      <button id="new-recording" class="button button-primary new-button"><span aria-hidden="true">+</span> Add recordings</button>
+      <div class="library-heading"><h2>YOUR LIBRARY</h2><span id="library-count" class="count">0</span></div>
+      <nav id="job-list" class="job-list" aria-label="Recordings"><p class="library-empty">A little space for<br>everything worth keeping.</p></nav>
+      <button id="open-trash" class="trash-button" type="button" aria-haspopup="dialog"><span>Trash</span><span id="trash-count" class="count">0</span></button>
+      <div class="sidebar-bottom"><span class="privacy-mark" aria-hidden="true">⌂</span><div><strong>At home on your computer</strong><p>Audio and notes stay local.</p></div></div>
+    </aside>
+
+    <main class="main-shell">
+      <header class="topbar"><span class="workspace-label">RECORDINGS & MEETING NOTES</span><div class="status-pill"><span class="status-dot" id="connection-dot"></span><span id="connection-text">Connecting</span></div></header>
+      <div id="notice" class="notice hidden" role="status"></div>
+      <section class="setup-banner hidden" id="setup-banner" aria-label="Transcription setup">
+        <div class="setup-symbol" aria-hidden="true">↓</div><div class="setup-copy"><strong id="setup-title">Make room for every voice</strong><p id="setup-description">Download the transcription models once, then process recordings on your computer.</p><progress id="setup-progress" max="100" value="0" class="hidden" aria-label="Model download progress"></progress></div><button id="setup-button" class="button button-primary">Set up transcription</button>
+      </section>
+      <div class="content-grid">
+        <div class="workspace">
+          <section id="welcome-view" class="welcome-view">
+            <div class="eyebrow"><span></span> YOUR RECORDINGS, PROCESSED LOCALLY</div>
+            <h1>From recordings<br>to <em>meeting notes.</em></h1>
+            <p class="welcome-description">Transcribe locally, name the speakers,<br>and draft a document you can review.</p>
+            <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose recordings or drop audio files here">
+              <div class="audio-glyph" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              <h2>Drop your recordings here</h2><p>or <span class="text-link">choose files</span> from your computer</p><span class="file-types">MP3, WAV, M4A, FLAC, OGG & more · Add a whole batch</span>
+            </div>
+            <div class="workflow"><div><span>01</span><strong>Bring the audio</strong><p>A meeting, an idea,<br>a conversation.</p></div><div><span>02</span><strong>Put names to voices</strong><p>Review speaker groups<br>and make them yours.</p></div><div><span>03</span><strong>Keep what matters</strong><p>Clear notes, decisions<br>and next steps.</p></div></div>
+          </section>
+
+          <section id="recording-view" class="recording-view hidden" aria-label="Selected recording">
+            <div class="recording-heading"><div class="recording-title-wrap"><div class="eyebrow" id="recording-eyebrow">YOUR RECORDING</div><input id="recording-title" class="recording-title" aria-label="Recording title" maxlength="160"><div class="recording-meta" id="recording-meta"></div></div><div class="recording-actions"><button id="delete-recording" type="button" class="button button-danger" title="Move to Trash. You can restore it later.">Delete recording</button><div class="export-wrap"><button id="export-button" class="button button-secondary" aria-expanded="false" aria-controls="export-menu">Export <span aria-hidden="true">↗</span></button><div id="export-menu" class="export-menu hidden"><a id="export-md" download>Markdown document <span>.md</span></a><a id="export-docx" download>Word document <span>.docx</span></a><a id="export-json" download>Transcript data <span>.json</span></a></div></div></div></div>
+            <div id="job-progress-card" class="job-progress-card hidden" role="status"><div class="progress-heading"><span class="processing-spinner" aria-hidden="true"></span><strong id="job-stage">Waiting to start</strong><span id="job-percentage"></span></div><progress id="job-progress" max="100" value="0" aria-label="Recording progress"></progress><p id="job-progress-detail">You can add more recordings while this one is processing.</p></div>
+            <div id="job-error" class="error-card hidden" role="alert"><p id="job-error-text"></p><button id="retry-job" class="button button-secondary">Retry recording</button></div>
+            <div class="audio-card"><span class="audio-card-label">LISTEN BACK</span><audio id="audio-player" controls preload="metadata" aria-label="Recording playback"></audio></div>
+            <div class="editor-toolbar"><div class="tabs" role="tablist" aria-label="Recording sections"><button id="tab-transcript" class="tab active" role="tab" aria-selected="true" aria-controls="transcript-panel">Transcript <span id="segment-count"></span></button><button id="tab-notes" class="tab" role="tab" aria-selected="false" aria-controls="notes-panel">Meeting notes</button></div><button id="save-transcript" class="button button-small button-primary hidden">Save changes</button></div>
+            <div id="unsaved-hint" class="unsaved-hint hidden" role="status">You have unsaved changes. Save them before generating notes or exporting.</div>
+            <section id="transcript-panel" role="tabpanel" aria-labelledby="tab-transcript"><div id="transcript-list" class="transcript-list"></div></section>
+            <section id="notes-panel" role="tabpanel" aria-labelledby="tab-notes" class="hidden"><div class="notes-intro"><div><h2>The meeting, made clear.</h2><p>A draft grounded in your transcript. Review it before sharing.</p></div><button id="generate-notes" class="button button-primary">Generate notes <span aria-hidden="true">✧</span></button></div><div id="notes-state" class="notes-state hidden" role="status"></div><div id="notes-content"></div></section>
+          </section>
+        </div>
+
+        <aside class="detail-panel" aria-label="Recording options and speakers">
+          <section class="settings-card"><div class="section-heading"><h2>Before you begin</h2><span class="small-star" aria-hidden="true">✳</span></div><p class="card-description">These settings apply to your next upload.</p><label for="language-select">Recording language</label><select id="language-select"><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="auto">Detect automatically</option></select><label for="speaker-count">How many speakers?</label><select id="speaker-count" aria-describedby="speaker-count-hint">
+            <option value="">Detect speakers automatically</option>
+            <option value="1">1 speaker — just me</option>
+            <option value="2">2 speakers</option>
+            <option value="3">3 speakers</option>
+            <option value="4">4 speakers</option>
+            <option value="5">5 speakers</option>
+            <option value="6">6 speakers</option>
+            <option value="7">7 speakers</option>
+            <option value="8">8 speakers</option>
+            <option value="9">9 speakers</option>
+            <option value="10">10 speakers</option>
+            <option value="11">11 speakers</option>
+            <option value="12">12 speakers</option>
+          </select><p id="speaker-count-hint" class="field-hint">Automatically detect and separate voices, or choose a known speaker count. Choose 1 speaker to keep all speech together.</p></section>
+          <section id="people-card" class="people-card"><div class="section-heading"><h2>People in the room</h2><span id="people-count" class="count">—</span></div><p class="card-description">Name voices, then assign transcript paragraphs to the right person.</p><div id="people-list"><div class="people-empty"><span class="person-outline" aria-hidden="true">♧</span><p>Voices will appear here<br>after transcription.</p></div></div><button id="add-speaker" type="button" class="button button-secondary full-width" disabled>+ Add speaker</button><button id="save-speakers" class="button button-secondary full-width hidden">Save changes</button><button id="use-one-speaker" type="button" class="button button-secondary full-width hidden" aria-describedby="use-one-speaker-hint">Use one speaker</button><p id="use-one-speaker-hint" class="field-hint hidden">Only your voice? Assign every line to the first speaker, then review and save.</p><p id="speaker-review-hint" class="field-hint hidden">Drag a paragraph onto a person or use its Assign speaker menu. This changes the speaker, not the order of the conversation.</p></section>
+          <section class="notes-settings"><div class="section-heading"><h2>Your notes assistant</h2><span id="ollama-dot" class="status-dot muted"></span></div><label for="model-select" class="visually-hidden">Ollama model for meeting notes</label><select id="model-select"><option value="qwen3.5:9b">qwen3.5:9b</option></select><p id="ollama-hint" class="field-hint">Checking for Ollama on this computer…</p></section>
+          <div class="local-note"><span aria-hidden="true">✦</span><p>A private place for your audio.<br><strong>No recording uploads to the cloud.</strong></p></div>
+        </aside>
+      </div>
+      <footer class="footer"><span>MEETING STUDIO</span><span>Local transcription & meeting notes</span></footer>
+    </main>
+  </div>
+  <dialog id="trash-dialog" class="trash-dialog" aria-labelledby="trash-title" aria-describedby="trash-description">
+    <div class="trash-dialog-heading"><h2 id="trash-title">Trash</h2><button id="close-trash" type="button" class="dialog-close" aria-label="Close Trash">×</button></div>
+    <p id="trash-description" class="trash-description">Restore a recording or empty Trash to remove it permanently. Nothing is automatically purged.</p>
+    <p id="trash-status" class="trash-status hidden" role="status"></p>
+    <div id="trash-list" class="trash-list" aria-label="Deleted recordings"></div>
+    <div class="trash-dialog-actions"><button id="empty-trash" type="button" class="button button-danger" disabled>Empty Trash</button></div>
+  </dialog>
+  <dialog id="empty-trash-dialog" class="trash-dialog empty-trash-dialog" aria-labelledby="empty-trash-title" aria-describedby="empty-trash-description">
+    <h2 id="empty-trash-title">Empty Trash?</h2>
+    <p id="empty-trash-count" class="empty-trash-count"></p>
+    <p id="empty-trash-description" class="trash-description">This permanently removes their audio, transcripts, and meeting notes. It cannot be undone. Files exported outside Meeting Studio are unaffected.</p>
+    <div class="trash-dialog-actions"><button id="cancel-empty-trash" type="button" class="button button-secondary" autofocus>Cancel</button><button id="confirm-empty-trash" type="button" class="button button-danger-solid">Delete permanently</button></div>
+  </dialog>
+  <dialog id="speaker-add-dialog" class="trash-dialog speaker-dialog" aria-labelledby="speaker-add-title" aria-describedby="speaker-add-description">
+    <h2 id="speaker-add-title">Add a speaker</h2>
+    <p id="speaker-add-description" class="trash-description">Add someone to this recording. Your changes stay as a draft until you save.</p>
+    <label for="new-speaker-name">Speaker name</label><input id="new-speaker-name" type="text" maxlength="100" autocomplete="off" placeholder="Enter a name">
+    <p id="speaker-add-error" class="trash-status hidden" role="alert"></p>
+    <div class="trash-dialog-actions"><button id="cancel-add-speaker" type="button" class="button button-secondary">Cancel</button><button id="confirm-add-speaker" type="button" class="button button-primary">Add speaker</button></div>
+  </dialog>
+  <dialog id="speaker-remove-dialog" class="trash-dialog speaker-dialog" aria-labelledby="speaker-remove-title" aria-describedby="speaker-remove-description">
+    <h2 id="speaker-remove-title">Remove speaker</h2>
+    <p id="speaker-remove-description" class="trash-description"></p>
+    <label for="remove-speaker-replacement">Assign their transcript parts to</label><select id="remove-speaker-replacement"></select>
+    <p id="speaker-remove-error" class="trash-status hidden" role="alert"></p>
+    <div class="trash-dialog-actions"><button id="cancel-remove-speaker" type="button" class="button button-secondary" autofocus>Cancel</button><button id="confirm-remove-speaker" type="button" class="button button-danger">Remove speaker</button></div>
+  </dialog>
+  <input id="file-input" type="file" accept="audio/*,video/mp4,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.wma,.mp4,.aiff,.webm" multiple hidden>
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>
