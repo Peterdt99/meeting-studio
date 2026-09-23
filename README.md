@@ -2,15 +2,13 @@
 
 **Your recordings. Your model. Your computer.**
 
-A Windows app for turning recordings into speaker-labelled transcripts and meeting notes. Whisper transcribes audio, local speaker models group voices, and your chosen Ollama model drafts notes. After setup, the complete workflow runs offline.
-
-[Download for Windows](https://github.com/Peterdt99/meeting-studio/releases/latest) · [Setup guide](INSTALL.md)
+A Windows app for turning recordings into searchable, speaker-labelled transcripts and structured notes for meetings, lectures or a journal. Whisper transcribes audio, local speaker models group voices, and your chosen Ollama model drafts notes. After setup, the complete workflow runs offline.
 
 ## Download and start
 
 This preview supports **Windows 10/11 on x64 computers**. Mac, Linux, and ARM-native installers are not included.
 
-1. Download the Windows ZIP from the project's GitHub Releases page and **extract the entire folder** into a writable location, such as Documents. Do not run it inside the ZIP or place it in Program Files.
+1. Download the **Windows-x64.zip** from the [latest release](https://github.com/Peterdt99/meeting-studio/releases/latest) and **extract the entire folder** into a writable location, such as Documents. Do not run it inside the ZIP or place it in Program Files.
 2. Double-click **Install.cmd**. It checks for 64-bit Python 3.12 and can offer to install it through Windows Package Manager. It then prepares the app and downloads its audio models.
 3. Setup opens the app. Use **Start.cmd**, **Meeting Studio.exe**, or the shortcut on subsequent visits.
 4. For meeting notes, install [Ollama](https://ollama.com/download) separately and download a local text model. For example, run **ollama pull qwen3.5:9b** in Terminal. Select it under **Your notes assistant**. Transcription and speaker editing work without Ollama.
@@ -27,10 +25,30 @@ Run **Install shortcuts.cmd** to create desktop and Start menu shortcuts. To pin
 2. Choose the recording language before importing. English is the default; automatic detection is available.
 3. Leave **Detect speakers automatically** selected for conversations, or choose a known count. **1 speaker — just me** keeps speech together and skips voice splitting.
 4. Listen, correct the text, and assign names to the voices.
-5. Generate and review meeting notes, decisions, action items, and transcript references.
+5. Choose a notes template, then generate and review its summary, sections and transcript references.
 6. Export Word, Markdown, or JSON, including the full transcript and speaker names.
 
 MP3, WAV, M4A, FLAC, OGG, AAC, WMA, AIFF, OPUS, WebM, MP4, and 3GP imports are accepted. Batches support up to 30 files, with a 2 GB limit per file. Work is processed one recording at a time.
+
+## Find a passage
+
+Choose **Search recordings** to find words or a phrase across completed transcripts in your library. Results show the recording, matching text and timestamp. Open a result to return to that passage; choose **Load more** for additional matches. Recordings in Trash are excluded.
+
+Search stays on this computer and does not use an AI model. If you have unsaved changes, you can save them before opening a result or cancel to keep editing.
+
+## Choose a notes template
+
+Use the notes template picker before generating notes:
+
+| Template | Sections after the summary |
+| --- | --- |
+| Meeting minutes | Decisions, Action items, Open questions |
+| Lecture notes | Key concepts, Study tasks, Review questions |
+| Journal | Highlights & reflections, Follow-ups, Open questions |
+
+All templates use the recording as their source and include timestamp references. Review the draft for accuracy. Meeting action items show an owner and due date when stated; the other templates omit those fields.
+
+Changing the template selects the format for the next generation. Existing notes keep the headings of the template that produced them until you regenerate them. Older notes without a template are treated as Meeting minutes. Word and Markdown exports follow the saved notes template, with the summary first, its sections next and the full transcript afterward.
 
 ## Assign transcript parts to people
 
@@ -92,7 +110,7 @@ Run the synthetic Python and passage editor tests described in **tests/README.md
 
 See **RELEASE_CHECKLIST.md** for preparing a clean GitHub release. Build the wrapper with **desktop/Build.ps1**. Publishing a repository or GitHub release is a separate step; setup does not publish anything.
 
-This preview was tested on the development Windows computer and through isolated API/browser checks. Clean-machine installation and all 99 languages have not been individually audio-benchmarked. Automatic speaker counts remain estimates. Word exports passed content and document-structure checks; visually review documents before sharing.
+This preview was tested on the development Windows computer and through isolated API/browser checks. A clean GitHub Windows runner also passed prerequisite checks, installed the Python libraries, compiled the desktop wrapper and ran the 1.1.1 Python and JavaScript regression suites. Full interactive setup and model downloads on a fresh PC, and audio accuracy in all 99 languages, have not been individually verified. Automatic speaker counts remain estimates. Word exports passed content and document-structure checks; visually review documents before sharing.
 
 ## License
 

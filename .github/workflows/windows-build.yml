@@ -36,17 +36,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Test dependency installation failed.' }
           & .\.venv\Scripts\python.exe -m pytest tests -q
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
-          node --test tests/test_passage_editor.js
-          if ($LASTEXITCODE -ne 0) { throw 'Passage editor tests failed.' }
+          node --test tests/test_passage_editor.js tests/test_search_templates_ui.js
+          if ($LASTEXITCODE -ne 0) { throw 'Interface tests failed.' }
       - name: Check Python syntax and build clean archive
         shell: powershell
         run: |
-          python -m py_compile server.py audio_engine.py languages.py model_setup.py notes.py exports.py
+          python -m py_compile server.py audio_engine.py languages.py model_setup.py note_templates.py transcript_search.py notes.py exports.py
           if ($LASTEXITCODE -ne 0) { throw 'Python syntax check failed.' }
-          python tools/package_release.py --output dist/MeetingStudio-1.1.1-Windows-x64.zip
+          python tools/package_release.py --output dist/MeetingStudio-1.2.0-Windows-x64.zip
           if ($LASTEXITCODE -ne 0) { throw 'Release packaging failed.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: MeetingStudio-1.1.1-Windows-x64
-          path: dist/MeetingStudio-1.1.1-Windows-x64.zip*
+          name: MeetingStudio-1.2.0-Windows-x64
+          path: dist/MeetingStudio-1.2.0-Windows-x64.zip*
           if-no-files-found: error

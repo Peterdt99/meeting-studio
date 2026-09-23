@@ -13,7 +13,15 @@
     collectionVersion: 0, selectionRequest: 0, notesStarting: false, retrying: false,
     emptyingTrash: false, emptyTrashIds: [], trashLoading: 0, trashFeedback: "", trashLoadError: "",
     addSpeakerContext: null, removeSpeakerContext: null, draggedParagraph: null,
+    searchQuery: "", searchResults: [], searchTotal: 0, searchHasMore: false, searchLoading: false,
+    searchRequest: 0, searchTimer: null, searchError: "", searchOpening: false, pendingSearchResult: null,
+    templatesLoaded: false, noteTemplates: [], templateSaving: false,
   };
+  const fallbackTemplates = [
+    { id: "meeting", name: "Meeting minutes", description: "A summary, decisions, action items, and open questions.", summary_heading: "Summary", sections: [{ key: "decisions", label: "Decisions" }, { key: "actions", label: "Action items", show_owner_due: true }, { key: "open_questions", label: "Open questions" }] },
+    { id: "lecture", name: "Lecture notes", description: "A summary, key concepts, study tasks, and review questions.", summary_heading: "Summary", sections: [{ key: "decisions", label: "Key concepts" }, { key: "actions", label: "Study tasks", show_owner_due: true }, { key: "open_questions", label: "Review questions" }] },
+    { id: "journal", name: "Journal", description: "A summary, highlights and reflections, follow-ups, and open questions.", summary_heading: "Summary", sections: [{ key: "decisions", label: "Highlights & reflections" }, { key: "actions", label: "Follow-ups", show_owner_due: true }, { key: "open_questions", label: "Open questions" }] },
+  ];
   const activeStatuses = new Set(["queued", "processing", "running"]);
   const languageNames = { en: "English", es: "Spanish", pt: "Portuguese", auto: "Automatic language" };
   const fileInput = $("file-input");
@@ -97,8 +105,8 @@
     show($("save-transcript"), state.dirty);
     show($("unsaved-hint"), state.dirty);
     show($("save-speakers"), state.nameDirty);
-    $("save-transcript").disabled = state.saving;
-    $("save-speakers").disabled = state.saving;
+    $("save-transcript").disabled = state.saving || state.templateSaving;
+    $("save-speakers").disabled = state.saving || state.templateSaving;
     $("save-transcript").textContent = state.saving ? "Saving…" : "Save changes";
     $("save-speakers").textContent = state.saving ? "Saving…" : "Save changes";
     $("unsaved-hint").textContent = state.job?.notes && state.job.notes_stale
@@ -108,12 +116,13 @@
   }
   function updateRecordingActions() {
     const busy = activeStatuses.has(state.job?.status) || activeStatuses.has(state.job?.notes_status) || state.notesStarting || state.retrying;
-    const blocked = state.saving || state.uploading || state.deleting || Boolean(state.restoringId) || state.emptyingTrash;
+    const blocked = state.saving || state.templateSaving || state.uploading || state.deleting || Boolean(state.restoringId) || state.emptyingTrash;
     $("delete-recording").disabled = !state.job || busy || blocked;
     $("delete-recording").textContent = state.deleting ? "Moving to Trash…" : "Delete recording";
     $("delete-recording").title = busy ? "Wait for processing to finish before deleting this recording." : "Move to Trash. You can restore it later.";
     $("export-button").disabled = !state.job || state.job.status !== "complete" || state.deleting;
-    $("new-recording").disabled = state.uploading || state.deleting || Boolean(state.restoringId) || state.emptyingTrash;
+    $("new-recording").disabled = state.templateSaving || state.uploading || state.deleting || Boolean(state.restoringId) || state.emptyingTrash;
+    $("notes-template").disabled = !state.job || blocked || busy;
     const editDisabled = !speakerEditsAllowed();
     $("use-one-speaker").disabled = editDisabled;
     $("add-speaker").disabled = editDisabled;
@@ -199,7 +208,7 @@
     }));
   }
   async function selectJob(id, force = false) {
-    if (state.deleting || state.restoringId || state.deletedIds.has(id)) return;
+    if (state.deleting || state.restoringId || state.emptyingTrash || state.templateSaving || state.deletedIds.has(id)) return false;
     if (state.dirty && !force) {
       if (state.selectedId === id) return;
       toast("Save your changes before opening another recording.");
@@ -220,7 +229,120 @@
       try { localStorage.setItem("meeting-studio-selected", id); } catch { /* Storage may be disabled. */ }
       renderLibrary();
       renderJob();
+      return true;
     } catch (error) { if (request === state.selectionRequest && version === state.collectionVersion && !state.deletedIds.has(id)) toast(error.message, true); }
+    return false;
+  }
+  function renderSearch() {
+    const results = $("search-results");
+    results.replaceChildren(...state.searchResults.map((result, index) => {
+      const button = node("button", "search-result");
+      button.type = "button"; button.id = `search-result-${index}`;
+      button.disabled = state.searchOpening;
+      button.append(node("strong", "search-result-title", result.title || result.filename || "Untitled recording"));
+      button.append(node("span", "search-result-time", `Listen at ${timestamp(result.start)}`));
+      const snippet = node("span", "search-result-snippet");
+      const text = String(result.snippet || "");
+      const start = Math.max(0, Math.min(text.length, Number(result.match_start) || 0));
+      const end = Math.max(start, Math.min(text.length, Number(result.match_end) || 0));
+      snippet.append(text.slice(0, start), node("mark", "", text.slice(start, end)), text.slice(end));
+      button.append(snippet);
+      button.addEventListener("click", () => requestSearchResult(result));
+      return button;
+    }));
+    const message = state.searchError || (state.searchLoading ? (state.searchResults.length ? "Loading more matches…" : "Searching your transcripts…")
+      : !state.searchQuery ? "Search completed recordings in your library."
+        : !state.searchResults.length ? "No matching phrases found. Try a different word or phrase."
+          : `${state.searchTotal} ${state.searchTotal === 1 ? "match" : "matches"} · ${state.searchResults.length} shown`);
+    $("search-status").textContent = message;
+    $("search-status").classList.toggle("error", Boolean(state.searchError));
+    $("search-results").setAttribute("aria-busy", String(state.searchLoading || state.searchOpening));
+    show($("search-more"), state.searchHasMore);
+    $("search-more").disabled = state.searchLoading || state.searchOpening;
+  }
+  async function searchRecordings(append = false) {
+    clearTimeout(state.searchTimer);
+    const query = $("recording-search").value.trim();
+    if (append && (state.searchLoading || query !== state.searchQuery)) return;
+    const request = ++state.searchRequest;
+    const version = state.collectionVersion;
+    const offset = append ? state.searchResults.length : 0;
+    state.searchQuery = query; state.searchError = "";
+    if (!append) { state.searchResults = []; state.searchTotal = 0; state.searchHasMore = false; }
+    state.searchLoading = Boolean(query);
+    renderSearch();
+    if (!query) return;
+    try {
+      const data = await api(`/api/search?q=${encodeURIComponent(query)}&limit=50&offset=${offset}`);
+      if (request !== state.searchRequest || query !== $("recording-search").value.trim()) return;
+      if (version !== state.collectionVersion) { state.searchLoading = false; searchRecordings(); return; }
+      const results = Array.isArray(data.results) ? data.results : [];
+      state.searchResults = append ? [...state.searchResults, ...results] : results;
+      state.searchTotal = Number(data.total) || 0; state.searchHasMore = Boolean(data.has_more);
+    } catch (error) {
+      if (request !== state.searchRequest) return;
+      state.searchError = `Search couldn’t finish. ${error.message} Try searching again.`;
+    } finally {
+      if (request === state.searchRequest) { state.searchLoading = false; renderSearch(); }
+    }
+  }
+  function requestSearchResult(result) {
+    if (state.searchOpening || state.saving || state.templateSaving || state.deleting || state.restoringId || state.emptyingTrash || state.uploading) return;
+    collectVisibleEdits();
+    if (state.dirty && state.selectedId !== result.job_id) {
+      state.pendingSearchResult = result;
+      show($("search-unsaved-error"), false);
+      $("search-unsaved-dialog").showModal(); $("cancel-search-open").focus();
+      return;
+    }
+    openSearchResult(result);
+  }
+  async function openSearchResult(result) {
+    if (state.searchOpening) return;
+    state.searchOpening = true; renderSearch();
+    try {
+      if (state.selectedId !== result.job_id && !await selectJob(result.job_id)) {
+        state.searchError = "That recording could not be opened. It may have changed or moved to Trash. Search again to refresh the results.";
+        return;
+      }
+      if (!state.job || state.job.id !== result.job_id) return;
+      const segment = (state.job.segments || []).find((part) => String(part.id) === String(result.segment_id));
+      if (!segment) { state.searchError = "This transcript changed. Search again to find the latest matches."; return; }
+      $("search-dialog").close();
+      jumpToSegment(segment);
+    } finally { state.searchOpening = false; renderSearch(); }
+  }
+  function noteTemplate(id) {
+    return state.noteTemplates.find((template) => template.id === id) || fallbackTemplates.find((template) => template.id === id) || fallbackTemplates[0];
+  }
+  function renderTemplatePicker() {
+    const selected = noteTemplate(state.job?.notes_template || state.job?.notes?.template || "meeting");
+    const select = $("notes-template");
+    const templates = state.noteTemplates.length ? state.noteTemplates : fallbackTemplates;
+    if (select.dataset.catalog !== JSON.stringify(templates)) {
+      select.replaceChildren(...templates.map((template) => { const option = node("option", "", template.name); option.value = template.id; return option; }));
+      select.dataset.catalog = JSON.stringify(templates);
+    }
+    select.value = selected.id;
+    $("notes-template-description").textContent = state.templateSaving ? "Saving your notes format…" : selected.description;
+  }
+  async function changeNotesTemplate() {
+    if (!state.job || state.saving || state.templateSaving) return;
+    collectVisibleEdits();
+    const job = state.job, previous = job.notes_template || job.notes?.template || "meeting";
+    const selected = $("notes-template").value;
+    if (selected === previous) return;
+    state.templateSaving = true; ++state.selectionRequest; job.notes_template = selected;
+    renderTemplatePicker(); renderDirty(); updateNotesButton();
+    try {
+      const saved = await api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "PATCH", body: JSON.stringify({ notes_template: selected }) });
+      if (state.job?.id === job.id) {
+        state.job.notes_template = saved.notes_template || selected;
+        state.job.notes_stale = Boolean(saved.notes_stale || state.dirty && state.job.notes);
+        state.renderSignature = "";
+      }
+    } catch (error) { if (state.job?.id === job.id) state.job.notes_template = previous; toast(error.message, true); }
+    finally { ++state.selectionRequest; state.templateSaving = false; renderNotes(); renderDirty(); }
   }
   function clearSelectedJob() {
     ++state.selectionRequest;
@@ -457,7 +579,7 @@
     return passage.segmentDisplay(segment).text;
   }
   function speakerEditsAllowed() {
-    return Boolean(state.job && state.job.status === "complete" && !state.saving && !state.deleting && !state.restoringId && !state.uploading && !state.emptyingTrash);
+    return Boolean(state.job && state.job.status === "complete" && !state.saving && !state.templateSaving && !state.deleting && !state.restoringId && !state.uploading && !state.emptyingTrash);
   }
   function commitPassageEditor(editor) {
     if (!state.job || state.job.id !== editor.dataset.jobId || state.saving) return false;
@@ -833,12 +955,12 @@
   }
   async function saveChanges() {
     collectVisibleEdits();
-    if (!state.job || !state.dirty || state.saving) return;
+    if (!state.job || !state.dirty || state.saving || state.templateSaving) return;
     state.saving = true;
     renderDirty();
     try {
       const speakers = speakerList().map((speaker, index) => ({ id: speaker.id, name: String(speaker.name || "").trim() || speakerName({ ...speaker, name: "" }, index) }));
-      const payload = { title: String(state.job.title || "").trim() || state.job.filename || "Untitled recording", speakers, segments: state.job.segments || [] };
+      const payload = { title: String(state.job.title || "").trim() || state.job.filename || "Untitled recording", speakers, segments: state.job.segments || [], notes_template: state.job.notes_template || state.job.notes?.template || "meeting" };
       const saved = await api(`/api/jobs/${encodeURIComponent(state.job.id)}`, { method: "PATCH", body: JSON.stringify(payload) });
       state.dirty = false;
       state.nameDirty = false;
@@ -857,45 +979,50 @@
     const button = $("generate-notes");
     const job = state.job;
     const busy = job && activeStatuses.has(job.notes_status);
-    button.disabled = !job || job.status !== "complete" || !(job.segments || []).some((segment) => String(segment.text || "").trim()) || busy || state.notesStarting || state.deleting || !state.status?.ollama?.available;
+    button.disabled = !job || job.status !== "complete" || !(job.segments || []).some((segment) => String(segment.text || "").trim()) || busy || state.notesStarting || state.saving || state.templateSaving || state.deleting || !state.status?.ollama?.available;
     button.textContent = state.notesStarting ? "Starting your notes…" : busy ? "Writing your notes…" : job && job.notes ? "Regenerate notes ✧" : "Generate notes ✧";
     button.title = !state.status?.ollama?.available ? "Start Ollama to generate meeting notes" : "Generate a draft from this transcript";
   }
   function renderNotes() {
     const job = state.job;
     if (!job) return;
+    renderTemplatePicker();
     updateNotesButton();
+    const selectedTemplate = noteTemplate(job.notes_template || job.notes?.template || "meeting");
+    const generatedTemplate = noteTemplate(job.notes?.template || "meeting");
+    const templateChanged = Boolean(job.notes && selectedTemplate.id !== generatedTemplate.id);
+    $("notes-heading").textContent = job.notes ? generatedTemplate.name : selectedTemplate.name;
     const status = job.notes_status;
     const busy = activeStatuses.has(status);
     const failed = status === "failed";
     const statusBox = $("notes-state");
-    show(statusBox, busy || failed || Boolean(job.notes_stale));
+    show(statusBox, busy || failed || Boolean(job.notes_stale) || templateChanged);
     statusBox.classList.toggle("error", failed);
-    statusBox.textContent = failed ? job.notes_error || "The notes couldn’t be generated. Check that your Ollama model is available, then try again." : busy ? job.notes_stage || "Your local assistant is reading the transcript and drafting your notes. You can keep listening while it works." : "The transcript or speaker names have changed. Regenerate these notes to include your latest edits.";
+    statusBox.textContent = failed ? job.notes_error || "The notes couldn’t be generated. Check that your Ollama model is available, then try again." : busy ? job.notes_stage || "Your local assistant is reading the transcript and drafting your notes. You can keep listening while it works." : templateChanged ? `Showing your existing ${generatedTemplate.name.toLowerCase()}. Regenerate notes to use ${selectedTemplate.name.toLowerCase()}.` : "The transcript or speaker names have changed. Regenerate these notes to include your latest edits.";
     const content = $("notes-content");
     if (!job.notes) {
       const empty = node("div", "notes-empty");
-      empty.append(node("span", "", "✧"), node("h3", "", "Less note-taking. More remembering."), node("p", "", "Give your speakers names and review the transcript, then create an overview, decisions, action items, and open questions. Each note can link back to the conversation."));
+      empty.append(node("span", "", "✧"), node("h3", "", "Keep the parts that matter."), node("p", "", `${selectedTemplate.description} Review your transcript, then generate a draft. The full transcript stays with your notes.`));
       content.replaceChildren(empty);
       return;
     }
     const notes = job.notes;
     const sections = [];
     const overview = node("section", "note-section");
-    overview.append(node("h3", "", "Overview"), node("p", "", notes.overview || "No overview was generated."));
+    overview.append(node("h3", "", generatedTemplate.summary_heading || "Summary"), node("p", "", notes.overview || "No summary was generated."));
     sections.push(overview);
-    for (const [key, title, emptyText] of [["decisions", "Decisions", "No clear decisions were identified."], ["actions", "Action items", "No specific action items were identified."], ["open_questions", "Open questions", "No open questions were identified."]]) {
+    for (const { key, label: title, show_owner_due } of generatedTemplate.sections) {
       const section = node("section", "note-section");
       section.append(node("h3", "", title));
       const items = Array.isArray(notes[key]) ? notes[key] : [];
-      if (!items.length) section.append(node("p", "note-empty", emptyText));
+      if (!items.length) section.append(node("p", "note-empty", "No entries were identified in this section."));
       else {
         const list = node("ul", "note-list");
         items.forEach((value) => {
           const entry = typeof value === "string" ? { text: value } : value;
           const item = node("li", "note-item");
           item.append(node("p", "", entry.text || ""));
-          if (key === "actions" && (entry.owner || entry.due)) {
+          if (show_owner_due && (entry.owner || entry.due)) {
             const meta = node("div", "note-item-meta");
             if (entry.owner) meta.append(node("span", "", `Owner: ${entry.owner}`));
             if (entry.due) meta.append(node("span", "", `Due: ${entry.due}`));
@@ -922,10 +1049,26 @@
       }
       sections.push(section);
     }
+    const transcript = node("details", "notes-full-transcript");
+    transcript.append(node("summary", "", "Full transcript"));
+    for (const group of groupTranscriptSegments(job.segments || [])) {
+      const first = group.segments[0];
+      const block = node("section", "notes-transcript-passage");
+      const person = speakerList().find((speaker) => String(speaker.id) === String(group.speaker));
+      const source = node("button", "timestamp", `${timestamp(first.start)} · ${person ? speakerName(person, speakerIndex(person.id)) : "Unassigned"}`);
+      source.type = "button"; source.addEventListener("click", () => jumpToSegment(first));
+      const content = node("p", "segment-text");
+      const rich = passage.fromSegments(group.segments);
+      passage.renderRuns(content, rich.runs);
+      if (!rich.text.trim()) content.append(node("span", "empty-passage", "Empty passage"));
+      block.append(source, content); transcript.append(block);
+    }
+    sections.push(transcript);
     content.replaceChildren(...sections);
   }
   function setTab(tab) {
     state.tab = tab;
+    if (tab === "notes") renderNotes();
     for (const name of ["transcript", "notes"]) {
       const active = name === tab;
       $("tab-" + name).classList.toggle("active", active);
@@ -951,7 +1094,7 @@
     item.classList.add("highlighted");
   }
   async function uploadFiles(files) {
-    if (!files || !files.length || state.uploading || state.deleting || state.restoringId || state.emptyingTrash) return;
+    if (!files || !files.length || state.templateSaving || state.uploading || state.deleting || state.restoringId || state.emptyingTrash) return;
     if (state.dirty) { toast("Save your current changes before adding a new recording."); return; }
     state.uploading = true;
     updateRecordingActions();
@@ -985,7 +1128,7 @@
     }
   }
   async function generateNotes() {
-    if (!state.job || state.deleting || state.notesStarting) return;
+    if (!state.job || state.deleting || state.notesStarting || state.templateSaving) return;
     if (state.dirty) { toast("Save your transcript and speaker names before generating notes."); return; }
     const button = $("generate-notes");
     const id = state.job.id;
@@ -994,7 +1137,7 @@
     button.disabled = true;
     button.textContent = "Starting your notes…";
     try {
-      const result = await api(`/api/jobs/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ model: $("model-select").value }) });
+      const result = await api(`/api/jobs/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ model: $("model-select").value, template: $("notes-template").value }) });
       if (state.selectedId === id && !state.deletedIds.has(id)) {
         if (result && result.id) state.job = result;
         else state.job.notes_status = "queued";
@@ -1017,10 +1160,15 @@
     updateTrashActions();
     const version = state.collectionVersion;
     try {
-      const [statusResult, jobsResult, trashResult] = await Promise.allSettled([api("/api/status"), api("/api/jobs"), api("/api/trash")]);
+      const [statusResult, jobsResult, trashResult, templatesResult] = await Promise.allSettled([api("/api/status"), api("/api/jobs"), api("/api/trash"), state.templatesLoaded ? Promise.resolve(null) : api("/api/note-templates")]);
       if (version !== state.collectionVersion) return;
       if (statusResult.status === "fulfilled") renderStatus(statusResult.value);
       else throw statusResult.reason;
+      if (templatesResult.status === "fulfilled" && Array.isArray(templatesResult.value?.templates)) {
+        state.noteTemplates = templatesResult.value.templates.filter((template) => template && typeof template.id === "string" && Array.isArray(template.sections));
+        state.templatesLoaded = Boolean(state.noteTemplates.length);
+        if (state.job) renderNotes();
+      }
       if (jobsResult.status === "fulfilled") {
         const jobs = Array.isArray(jobsResult.value) ? jobsResult.value : jobsResult.value.jobs || [];
         state.jobs = jobs.filter((job) => !state.deletedIds.has(job.id));
@@ -1036,11 +1184,11 @@
       }
       if (state.selectedId && !state.jobs.some((job) => job.id === state.selectedId) && !state.dirty && !state.saving && !state.uploading) clearSelectedJob();
       if (state.selectedId) {
-        if (!state.dirty && !state.saving && !state.uploading) {
+        if (!state.dirty && !state.saving && !state.templateSaving && !state.uploading) {
           const selectedId = state.selectedId;
           const selection = state.selectionRequest;
           const job = await api(`/api/jobs/${encodeURIComponent(selectedId)}`);
-          if (version === state.collectionVersion && selection === state.selectionRequest && selectedId === state.selectedId && !state.deletedIds.has(selectedId) && !state.dirty && !state.saving) {
+          if (version === state.collectionVersion && selection === state.selectionRequest && selectedId === state.selectedId && !state.deletedIds.has(selectedId) && !state.dirty && !state.saving && !state.templateSaving) {
             state.job = job;
             renderJob();
           }
@@ -1068,6 +1216,37 @@
   }
 
   $("new-recording").addEventListener("click", () => fileInput.click());
+  $("open-search").addEventListener("click", () => {
+    collectVisibleEdits();
+    $("search-dialog").showModal(); $("recording-search").focus();
+    searchRecordings();
+  });
+  $("close-search").addEventListener("click", () => $("search-dialog").close());
+  $("search-dialog").addEventListener("close", () => { clearTimeout(state.searchTimer); ++state.searchRequest; state.searchLoading = false; });
+  $("recording-search").addEventListener("input", () => {
+    clearTimeout(state.searchTimer); ++state.searchRequest;
+    state.searchQuery = $("recording-search").value.trim(); state.searchResults = []; state.searchTotal = 0; state.searchHasMore = false;
+    state.searchError = ""; state.searchLoading = Boolean(state.searchQuery); renderSearch();
+    state.searchTimer = setTimeout(() => searchRecordings(), 280);
+  });
+  $("search-form").addEventListener("submit", (event) => { event.preventDefault(); searchRecordings(); });
+  $("search-more").addEventListener("click", () => searchRecordings(true));
+  $("cancel-search-open").addEventListener("click", () => { if (!state.saving) $("search-unsaved-dialog").close(); });
+  $("search-unsaved-dialog").addEventListener("cancel", (event) => { if (state.saving) event.preventDefault(); });
+  $("search-unsaved-dialog").addEventListener("close", () => { state.pendingSearchResult = null; });
+  $("save-search-open").addEventListener("click", async () => {
+    const result = state.pendingSearchResult;
+    if (!result || state.saving || state.templateSaving) return;
+    $("save-search-open").disabled = true; $("cancel-search-open").disabled = true;
+    $("save-search-open").textContent = "Saving…";
+    try {
+      await saveChanges();
+      if (state.dirty) { $("search-unsaved-error").textContent = "Your changes could not be saved. Cancel to review them and try again."; show($("search-unsaved-error")); return; }
+      $("search-unsaved-dialog").close();
+      await openSearchResult(result);
+    } finally { $("save-search-open").disabled = false; $("cancel-search-open").disabled = false; $("save-search-open").textContent = "Save and open"; }
+  });
+  $("notes-template").addEventListener("change", changeNotesTemplate);
   fileInput.addEventListener("change", () => uploadFiles(fileInput.files));
   const drop = $("drop-zone");
   drop.addEventListener("click", () => fileInput.click());

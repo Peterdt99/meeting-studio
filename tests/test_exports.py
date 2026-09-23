@@ -99,10 +99,82 @@ class ExportTests(unittest.TestCase):
 
     def test_empty_job_does_not_claim_notes_were_generated(self):
         output = render_markdown({})
-        self.assertIn("Meeting notes have not been generated", output)
+        self.assertIn("Notes have not been generated for the Meeting minutes template", output)
         self.assertIn("No transcript is available", output)
         self.assertNotIn("None identified", output)
         Document(BytesIO(render_docx({})))
+
+    def test_each_saved_template_exports_its_sections_after_summary(self):
+        templates = {
+            "meeting": ("Meeting minutes", ["Decisions", "Action items", "Open questions"],
+                        ["Decisions", "Action items", "Open questions"]),
+            "lecture": ("Lecture notes", ["Key concepts", "Study tasks", "Review questions"],
+                        ["Key concepts", "Study tasks", "Review questions"]),
+            "journal": ("Journal", ["Highlights & reflections", "Follow-ups", "Open questions"],
+                        ["Highlights &amp; reflections", "Follow\\-ups", "Open questions"]),
+        }
+        for template_id, (name, headings, markdown_headings) in templates.items():
+            with self.subTest(template=template_id):
+                job = deepcopy(FIXTURE)
+                job["notes"]["template"] = template_id
+                original = deepcopy(job)
+                markdown = render_markdown(job)
+                self.assertIn("**Notes template:** " + name, markdown)
+                positions = [markdown.index("## Summary"),
+                             *[markdown.index("### " + h) for h in markdown_headings],
+                             markdown.index("## Full transcript")]
+                self.assertEqual(positions, sorted(positions))
+                self.assertIn("Source: 00:34", markdown)
+                document = Document(BytesIO(render_docx(job)))
+                exported_headings = [p.text for p in document.paragraphs if p.style.name.startswith("Heading")]
+                self.assertEqual(["Summary", *headings, "Full transcript"], exported_headings)
+                content = "\n".join(p.text for p in document.paragraphs)
+                self.assertIn("Source: 00:34", content)
+                self.assertEqual(template_id == "meeting", "Owner: Example Taylor" in content)
+                self.assertEqual(template_id == "meeting", "Owner: Example Taylor" in markdown)
+                self.assertEqual(original, job)
+
+    def test_template_preference_change_cannot_relabel_saved_or_legacy_notes(self):
+        for saved_template, preference, expected_name, expected_heading in (
+            (None, "lecture", "Meeting minutes", "Decisions"),
+            ("lecture", "journal", "Lecture notes", "Key concepts"),
+            ("journal", "meeting", "Journal", "Highlights & reflections"),
+        ):
+            with self.subTest(saved=saved_template, selected=preference):
+                job = deepcopy(FIXTURE)
+                if saved_template is not None:
+                    job["notes"]["template"] = saved_template
+                job["notes_template"] = preference
+                job["notes_stale"] = True
+                markdown = render_markdown(job)
+                self.assertIn("**Notes template:** " + expected_name, markdown)
+                self.assertIn("Notes need updating", markdown)
+                document = Document(BytesIO(render_docx(job)))
+                self.assertIn(expected_heading, [p.text for p in document.paragraphs])
+                self.assertIn("Notes template: " + expected_name, [p.text for p in document.paragraphs])
+                self.assertTrue(any("Notes need updating" in p.text for p in document.paragraphs))
+
+    def test_ungenerated_notes_use_selected_template_without_inventing_sections(self):
+        for template_id, name in (("meeting", "Meeting minutes"), ("lecture", "Lecture notes"), ("journal", "Journal")):
+            with self.subTest(template=template_id):
+                job = {"notes_template": template_id, "notes": None}
+                message = "Notes have not been generated for the " + name + " template."
+                markdown = render_markdown(job)
+                self.assertIn(message, markdown)
+                self.assertNotIn("### ", markdown)
+                document = Document(BytesIO(render_docx(job)))
+                self.assertIn(message, [p.text for p in document.paragraphs])
+                self.assertEqual(["Summary", "Full transcript"],
+                                 [p.text for p in document.paragraphs if p.style.name.startswith("Heading")])
+
+    def test_unknown_saved_template_falls_back_without_using_new_preference(self):
+        job = deepcopy(FIXTURE)
+        job["notes"]["template"] = "<script>unknown</script>"
+        job["notes_template"] = "lecture"
+        markdown = render_markdown(job)
+        self.assertIn("**Notes template:** Meeting minutes", markdown)
+        self.assertIn("### Decisions", markdown)
+        self.assertNotIn("<script>", markdown)
 
     def test_consecutive_sentences_form_speaker_paragraphs_in_both_exports(self):
         job = deepcopy(FIXTURE)

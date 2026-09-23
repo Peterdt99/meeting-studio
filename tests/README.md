@@ -2,7 +2,8 @@
 
 From the app root, install requirements-dev.txt into a Python 3.12 environment,
 then run `python -m pytest tests -q`. With Node.js 24 installed, also run
-`node --test tests/test_passage_editor.js` for the rich text passage helper.
+`node --test tests/test_passage_editor.js tests/test_search_templates_ui.js`
+for rich text, search navigation and template presentation checks.
 No npm packages are needed. Node.js is a development prerequisite only; the
 installed app runs its interface in WebView2 or a browser.
 
@@ -13,7 +14,8 @@ real symlink if the account lacks permission; a simulated reparse-point test sti
 checks that linked files are rejected before deletion.
 
 The passage tests check exact text and formatting round trips, Unicode, blank
-lines, empty slices, preserved source identifiers and safe rendering. Both the
+lines, empty slices, preserved source identifiers and safe rendering. Search and
+template tests cover transcript matches, saved-note provenance and export headings. Both the
 Python suite and Node.js tests run in the Windows build workflow.
 
 Temporary test state and generated synthetic examples must never be committed.

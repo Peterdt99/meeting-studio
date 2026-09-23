@@ -137,7 +137,11 @@ def test_duplicate_notes_requests_only_queue_once(ready_job):
     url = f"/api/jobs/{job['id']}/notes"
     assert client.post(url, json={"model": "mock-model"}).status_code == 200
     assert client.post(url, json={"model": "mock-model"}).status_code == 200
-    server.executor.submit.assert_called_once_with(server.notes_worker, job["id"], "mock-model")
+    server.executor.submit.assert_called_once()
+    function, job_id, model, snapshot = server.executor.submit.call_args.args
+    assert (function, job_id, model) == (server.notes_worker, job["id"], "mock-model")
+    assert snapshot["notes_template"] == "meeting"
+    assert snapshot["segments"] == job["segments"]
 
 
 @pytest.mark.parametrize("second_name,second_data", [("wrong.exe", b"wrong"), ("empty.wav", b"")])

@@ -2,12 +2,14 @@
 
 The supported desktop package targets Windows 10 or 11 on a 64-bit Intel or AMD computer. It runs speech processing locally on the CPU; no NVIDIA graphics card is required. macOS, Linux and native Windows ARM builds are not provided. Allow several gigabytes of free disk space for Python libraries, speech models and your recordings.
 
-1. Extract the entire Windows ZIP into a writable folder, such as `Documents\MeetingStudio`. Do not run it inside the ZIP or copy only the EXE.
+1. Download the **Windows-x64.zip** from the [latest release](https://github.com/Peterdt99/meeting-studio/releases/latest), then extract the entire ZIP into a writable folder, such as `Documents\MeetingStudio`. Do not run it inside the ZIP or copy only the EXE.
 2. Double-click `Install.cmd`. If 64-bit Python 3.12 is missing, the installer offers to install it for your Windows account with Windows Package Manager. It asks before doing so. If Windows Package Manager is unavailable, it offers the official Python download page.
 3. Wait while the app creates its own `.venv`, installs Python packages from PyPI and downloads speech models from Hugging Face and the sherpa-onnx GitHub releases. The first setup requires internet. If interrupted, rerun `Install.cmd`; completed models and recordings are kept.
 4. Meeting Studio opens when setup finishes. Open `Start.cmd` or `Meeting Studio.exe` next time. `Install shortcuts.cmd` creates shortcuts after installation.
 
 Transcription and speaker grouping work offline after setup. Meeting notes additionally need a local Ollama installation and a downloaded text model. Ollama and its model are separate downloads; their own licenses apply. The app does not install Ollama or silently fetch a text model.
+
+After importing a recording, use **Search recordings** to find passages in completed transcripts. Choose a Meeting minutes, Lecture notes or Journal template before generating notes. Search works without Ollama; every notes template uses your selected local Ollama model.
 
 The desktop window uses Microsoft Edge WebView2 Runtime. If its error message reports the runtime missing, install it from [Microsoft's WebView2 page](https://developer.microsoft.com/microsoft-edge/webview2/) or run `Start.cmd -Browser` to use your browser. If processing-library imports fail, install Microsoft's [Visual C++ x64 Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) and rerun setup. The app is currently unsigned; only run copies from the source you intend to trust.
 

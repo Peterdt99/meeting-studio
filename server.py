@@ -16,13 +16,15 @@ import uuid
 from urllib.parse import urlparse, quote
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from notes import DEFAULT_MODEL, generate_notes, ollama_status
 from languages import ACCEPTED_LANGUAGE_CODES, DEFAULT_LANGUAGE, LANGUAGE_OPTIONS
+from note_templates import DEFAULT_TEMPLATE, list_templates
+from transcript_search import search_recordings
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("MEETING_STUDIO_DATA", str(APP_DIR / "data"))).resolve()
@@ -70,6 +72,7 @@ def get_job(job_id, *, include_deleted=False):
 
 def public_job(job, detail=True):
     value = {k: v for k, v in job.items() if k != "audio_file"}
+    value.setdefault("notes_template", DEFAULT_TEMPLATE)
     if not detail:
         for k in ("segments", "notes", "speaker_turns"):
             value.pop(k, None)
@@ -143,9 +146,26 @@ def status():
         ollama = copy.deepcopy(status_cache["value"])
         setup = copy.deepcopy(setup_state)
     models = speech_models_status()
-    return {"app": "Meeting Studio", "version": "1.1.1", "ready": models["ready"],
+    return {"app": "Meeting Studio", "version": "1.2.0", "ready": models["ready"],
             "models": models, "ollama": ollama, "setup": setup,
             "languages": LANGUAGE_OPTIONS, "default_language": DEFAULT_LANGUAGE}
+
+
+@app.get("/api/note-templates")
+def note_templates():
+    return {"templates": list_templates(), "default": DEFAULT_TEMPLATE}
+
+
+@app.get("/api/search")
+def search(q: str = Query(min_length=1, max_length=200), limit: int = Query(default=50, ge=1, le=100),
+           offset: int = Query(default=0, ge=0)):
+    query = q.strip()
+    if not query:
+        raise HTTPException(400, "Enter a word or phrase to find in your recordings.")
+    with lock:
+        snapshot = [copy.deepcopy({key: job.get(key) for key in ("id", "title", "filename", "created_at", "status", "segments")})
+                    for job in jobs.values() if not job.get("deleted_at") and job.get("status") == "complete"]
+    return search_recordings(snapshot, query, limit, offset)
 
 
 def setup_worker():
@@ -341,7 +361,7 @@ async def upload_recordings(files: list[UploadFile] = File(...), language: str =
                    "status": "queued", "stage": "Waiting to transcribe", "progress": 0,
                    "requested_language": language, "num_speakers": num_speakers,
                    "speakers": [], "segments": [], "warnings": [], "notes_status": "idle",
-                   "notes": None, "notes_stale": False, "transcript_revision": 0}
+                   "notes": None, "notes_template": DEFAULT_TEMPLATE, "notes_stale": False, "transcript_revision": 0}
             with lock:
                 jobs[job_id] = job
                 save_job(job)
@@ -412,6 +432,18 @@ class EditRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     speakers: list[Speaker] | None = Field(default=None, max_length=100)
     segments: list[Segment] | None = Field(default=None, max_length=100000)
+    notes_template: Literal["meeting", "lecture", "journal"] | None = None
+
+
+def notes_are_stale(job, selected_template=None, revision=None):
+    if not job.get("notes"):
+        return False
+    selected = selected_template if selected_template is not None else job.get("notes_template", DEFAULT_TEMPLATE)
+    current_revision = job.get("transcript_revision", 0) if revision is None else revision
+    generated_revision = job.get("notes_transcript_revision")
+    source_changed = (generated_revision != current_revision if generated_revision is not None
+                      else bool(job.get("notes_stale")))
+    return source_changed or job["notes"].get("template", DEFAULT_TEMPLATE) != selected
 
 
 @app.patch("/api/jobs/{job_id}")
@@ -435,29 +467,41 @@ def edit(job_id: str, changes: EditRequest):
             if s["end"] > float(job.get("duration", s["end"])) + 1:
                 raise HTTPException(400, "A transcript timestamp is beyond the recording.")
         if patch:
-            patch["transcript_revision"] = job.get("transcript_revision", 0) + 1
-            patch["notes_stale"] = bool(job.get("notes")) or job.get("notes_status") in ("queued", "processing")
+            source_changed = bool({"title", "speakers", "segments"} & patch.keys())
+            revision = job.get("transcript_revision", 0) + int(source_changed)
+            if source_changed:
+                patch["transcript_revision"] = revision
+            # Capture the known fresh revision of legacy notes before changing preference.
+            if job.get("notes") and "notes_transcript_revision" not in job and not job.get("notes_stale"):
+                patch["notes_transcript_revision"] = job.get("transcript_revision", 0)
+            candidate = {**job, **patch}
+            patch["notes_stale"] = (notes_are_stale(candidate, revision=revision)
+                                    or source_changed and job.get("notes_status") in ("queued", "processing"))
             job = update_job(job_id, **patch)
         return public_job(job)
 
 
 class NotesRequest(BaseModel):
     model: str = Field(default=DEFAULT_MODEL, min_length=1, max_length=120)
+    template: Literal["meeting", "lecture", "journal"] = DEFAULT_TEMPLATE
 
 
-def notes_worker(job_id, model):
-    snapshot = get_job(job_id)
+def notes_worker(job_id, model, snapshot=None):
+    snapshot = copy.deepcopy(snapshot) if snapshot is not None else get_job(job_id)
     revision = snapshot["transcript_revision"]
-    update_job(job_id, notes_status="processing", notes_stage="Preparing meeting notes", notes_error=None)
+    template = snapshot.get("notes_template", DEFAULT_TEMPLATE)
+    update_job(job_id, notes_status="processing", notes_stage="Preparing notes", notes_error=None)
     def progress(message, amount):
         update_job(job_id, notes_stage=message, notes_progress=amount)
     try:
         document = generate_notes(snapshot, model, progress)
+        document = {**document, "template": template}
         with lock:
             current = get_job(job_id)
             update_job(job_id, notes=document, notes_status="complete", notes_stage="Draft ready for review",
                        notes_progress=1, notes_model=model, notes_generated_at=now(),
-                       notes_stale=current["transcript_revision"] != revision)
+                       notes_transcript_revision=revision,
+                       notes_stale=current["transcript_revision"] != revision or current.get("notes_template", DEFAULT_TEMPLATE) != template)
     except Exception as exc:
         logger.exception("Notes failed for %s", job_id)
         update_job(job_id, notes_status="failed", notes_error=str(exc), notes_stage="Could not draft notes")
@@ -470,9 +514,13 @@ def make_notes(job_id: str, options: NotesRequest):
         if job["status"] != "complete" or not any((s.get("text") or "").strip() for s in job["segments"]):
             raise HTTPException(409, "A completed speech transcript with some text is needed first.")
         if job.get("notes_status") in ("queued", "processing"):
+            if job.get("notes_template", DEFAULT_TEMPLATE) != options.template:
+                job = update_job(job_id, notes_template=options.template,
+                                 notes_stale=notes_are_stale(job, options.template))
             return public_job(job)
-        job = update_job(job_id, notes_status="queued", notes_stage="Waiting to draft notes", notes_progress=0, notes_error=None)
-        executor.submit(notes_worker, job_id, options.model)
+        job = update_job(job_id, notes_status="queued", notes_stage="Waiting to draft notes", notes_progress=0, notes_error=None,
+                         notes_template=options.template, notes_stale=notes_are_stale(job, options.template))
+        executor.submit(notes_worker, job_id, options.model, copy.deepcopy(job))
         return public_job(job)
 
 

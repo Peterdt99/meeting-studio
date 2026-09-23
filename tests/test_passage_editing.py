@@ -145,7 +145,7 @@ def test_notes_use_canonical_text_and_original_ids_without_formatting(assignment
     monkeypatch.setattr(notes, "validate_model", lambda _: None)
     generated = Mock(return_value=original["notes"])
     monkeypatch.setattr(notes, "_generate", generated)
-    assert notes.generate_notes(job, "unused-model") == original["notes"]
+    assert notes.generate_notes(job, "unused-model") == {**original["notes"], "template": "meeting"}
     generated.assert_called_once()
     _, source, allowed_ids = generated.call_args.args
     assert allowed_ids == {s["id"] for s in original["segments"]}

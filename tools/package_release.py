@@ -8,7 +8,7 @@ ROOT_FILES = (
     'README.md', 'INSTALL.md', 'RELEASE_CHECKLIST.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
     '.gitignore', 'requirements.txt', 'requirements-dev.txt', 'Install.cmd', 'Install.ps1', 'Install shortcuts.cmd',
     'Start.cmd', 'Start.ps1', 'Start in browser.ps1', 'audio_engine.py', 'exports.py',
-    'languages.py', 'model_setup.py', 'notes.py', 'server.py', 'Meeting Studio.exe.config',
+    'languages.py', 'model_setup.py', 'note_templates.py', 'transcript_search.py', 'notes.py', 'server.py', 'Meeting Studio.exe.config',
     'WebView2-LICENSE.txt', 'WebView2-NOTICE.txt',
     'static/app.js', 'static/index.html', 'static/styles.css', 'static/passage_editor.js',
     'desktop/Build.ps1', 'desktop/MeetingStudio.cs', 'desktop/ShortcutInstaller.cs',
@@ -18,6 +18,7 @@ ROOT_FILES = (
     'tests/test_single_speaker.py', 'tests/test_server.py', 'tests/test_trash.py',
     'tests/test_empty_trash.py', 'tests/test_exports.py', 'tests/test_speaker_assignment.py',
     'tests/test_language_support.py', 'tests/test_passage_editor.js', 'tests/test_passage_editing.py',
+    'tests/test_search.py', 'tests/test_note_templates.py', 'tests/test_search_templates_ui.js',
 )
 DESKTOP_FILES = ('Meeting Studio.exe', 'Meeting Studio.ico', 'Microsoft.Web.WebView2.Core.dll',
                  'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll')

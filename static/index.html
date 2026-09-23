@@ -14,6 +14,7 @@
     <aside class="sidebar" aria-label="Recording library">
       <a class="brand" href="/" aria-label="Meeting Studio home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>Meeting<br><strong>Studio</strong></span></a>
       <button id="new-recording" class="button button-primary new-button"><span aria-hidden="true">+</span> Add recordings</button>
+      <button id="open-search" type="button" class="library-search-button" aria-haspopup="dialog"><span aria-hidden="true">⌕</span> Search recordings</button>
       <div class="library-heading"><h2>YOUR LIBRARY</h2><span id="library-count" class="count">0</span></div>
       <nav id="job-list" class="job-list" aria-label="Recordings"><p class="library-empty">A little space for<br>everything worth keeping.</p></nav>
       <button id="open-trash" class="trash-button" type="button" aria-haspopup="dialog"><span>Trash</span><span id="trash-count" class="count">0</span></button>
@@ -44,10 +45,10 @@
             <div id="job-progress-card" class="job-progress-card hidden" role="status"><div class="progress-heading"><span class="processing-spinner" aria-hidden="true"></span><strong id="job-stage">Waiting to start</strong><span id="job-percentage"></span></div><progress id="job-progress" max="100" value="0" aria-label="Recording progress"></progress><p id="job-progress-detail">You can add more recordings while this one is processing.</p></div>
             <div id="job-error" class="error-card hidden" role="alert"><p id="job-error-text"></p><button id="retry-job" class="button button-secondary">Retry recording</button></div>
             <div class="audio-card"><span class="audio-card-label">LISTEN BACK</span><audio id="audio-player" controls preload="metadata" aria-label="Recording playback"></audio></div>
-            <div class="editor-toolbar"><div class="tabs" role="tablist" aria-label="Recording sections"><button id="tab-transcript" class="tab active" role="tab" aria-selected="true" aria-controls="transcript-panel">Transcript <span id="segment-count"></span></button><button id="tab-notes" class="tab" role="tab" aria-selected="false" aria-controls="notes-panel">Meeting notes</button></div><button id="save-transcript" class="button button-small button-primary hidden">Save changes</button></div>
+            <div class="editor-toolbar"><div class="tabs" role="tablist" aria-label="Recording sections"><button id="tab-transcript" class="tab active" role="tab" aria-selected="true" aria-controls="transcript-panel">Transcript <span id="segment-count"></span></button><button id="tab-notes" class="tab" role="tab" aria-selected="false" aria-controls="notes-panel">Notes</button></div><button id="save-transcript" class="button button-small button-primary hidden">Save changes</button></div>
             <div id="unsaved-hint" class="unsaved-hint hidden" role="status">You have unsaved changes. Save them before generating notes or exporting.</div>
             <section id="transcript-panel" role="tabpanel" aria-labelledby="tab-transcript"><div id="transcript-list" class="transcript-list"></div></section>
-            <section id="notes-panel" role="tabpanel" aria-labelledby="tab-notes" class="hidden"><div class="notes-intro"><div><h2>The meeting, made clear.</h2><p>A draft grounded in your transcript. Review it before sharing.</p></div><button id="generate-notes" class="button button-primary">Generate notes <span aria-hidden="true">✧</span></button></div><div id="notes-state" class="notes-state hidden" role="status"></div><div id="notes-content"></div></section>
+            <section id="notes-panel" role="tabpanel" aria-labelledby="tab-notes" class="hidden"><div class="notes-intro"><div><h2 id="notes-heading">Your recording, made clear.</h2><p>A draft grounded in your transcript. Review it before sharing.</p></div><button id="generate-notes" class="button button-primary">Generate notes <span aria-hidden="true">✧</span></button></div><div class="notes-template-picker"><label for="notes-template">Notes format</label><select id="notes-template"><option value="meeting">Meeting minutes</option><option value="lecture">Lecture notes</option><option value="journal">Journal</option></select><p id="notes-template-description" class="field-hint"></p></div><div id="notes-state" class="notes-state hidden" role="status"></div><div id="notes-content"></div></section>
           </section>
         </div>
 
@@ -75,6 +76,18 @@
       <footer class="footer"><span>MEETING STUDIO</span><span>Local transcription & meeting notes</span></footer>
     </main>
   </div>
+  <dialog id="search-dialog" class="trash-dialog search-dialog" aria-labelledby="search-title" aria-describedby="search-description">
+    <div class="trash-dialog-heading"><h2 id="search-title">Search recordings</h2><button id="close-search" type="button" class="dialog-close" aria-label="Close search">×</button></div>
+    <p id="search-description" class="trash-description">Find a phrase in your saved transcripts, then jump to that moment in the audio.</p>
+    <form id="search-form" role="search"><label for="recording-search" class="visually-hidden">Search all recording transcripts</label><input id="recording-search" type="search" placeholder="Search for a word or phrase…" autocomplete="off" maxlength="500"><button type="submit" class="button button-primary">Search</button></form>
+    <p id="search-status" class="search-status" role="status" aria-live="polite">Search completed recordings in your library.</p>
+    <div id="search-results" class="search-results" aria-label="Search results"></div>
+    <button id="search-more" type="button" class="button button-secondary full-width hidden">Load more results</button>
+  </dialog>
+  <dialog id="search-unsaved-dialog" class="trash-dialog speaker-dialog" aria-labelledby="search-unsaved-title" aria-describedby="search-unsaved-description">
+    <h2 id="search-unsaved-title">Save your changes first?</h2><p id="search-unsaved-description" class="trash-description">Your current recording has unsaved changes. Save them before opening this search result, or cancel to keep working.</p>
+    <p id="search-unsaved-error" class="trash-status hidden" role="alert"></p><div class="trash-dialog-actions"><button id="cancel-search-open" type="button" class="button button-secondary" autofocus>Cancel</button><button id="save-search-open" type="button" class="button button-primary">Save and open</button></div>
+  </dialog>
   <dialog id="trash-dialog" class="trash-dialog" aria-labelledby="trash-title" aria-describedby="trash-description">
     <div class="trash-dialog-heading"><h2 id="trash-title">Trash</h2><button id="close-trash" type="button" class="dialog-close" aria-label="Close Trash">×</button></div>
     <p id="trash-description" class="trash-description">Restore a recording or empty Trash to remove it permanently. Nothing is automatically purged.</p>

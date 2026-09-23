@@ -7,14 +7,15 @@ import math
 import re
 from typing import Any
 from languages import LANGUAGE_NAMES
+from note_templates import DEFAULT_TEMPLATE, TEMPLATE_IDS, get_template
 
 
 _DRAFT_NOTICE = (
     "AI draft. Speaker labels are estimated and names are assigned manually. "
-    "Check the transcript, speaker attribution and meeting notes before sharing."
+    "Check the transcript, speaker attribution and notes before sharing."
 )
 _STALE_NOTICE = (
-    "Notes need updating. The transcript or speaker names changed after these notes "
+    "Notes need updating. The transcript, speaker names or selected template changed after these notes "
     "were generated. Regenerate the notes before sharing."
 )
 
@@ -198,17 +199,23 @@ def _view(job: dict) -> dict:
     if "UNKNOWN" not in used_speakers:
         warnings = [w for w in warnings if not w.startswith("Some words could not be confidently matched")]
     notes = job.get("notes") if isinstance(job.get("notes"), dict) else None
+    # Saved notes retain their original meaning after the preferred template changes.
+    template_id = notes.get("template", DEFAULT_TEMPLATE) if notes is not None else job.get("notes_template", DEFAULT_TEMPLATE)
+    if not isinstance(template_id, str) or template_id not in TEMPLATE_IDS:
+        template_id = DEFAULT_TEMPLATE
+    template = get_template(template_id)
     return {
-        "title": _text(job.get("title")).strip() or "Meeting record",
+        "title": _text(job.get("title")).strip() or template["name"],
         "metadata": [
             ("Imported", _date(job.get("created_at"))),
             ("Recording", _text(job.get("filename")).strip() or "Not provided"),
             ("Duration", _time(job.get("duration"))),
             ("Language", _language(job.get("language"))),
             ("Speakers", ", ".join(listed_names) or "Not assigned"),
+            ("Notes template", template["name"]),
         ],
         "names": names, "segments": segments, "by_id": by_id, "notes": notes,
-        "warnings": warnings,
+        "warnings": warnings, "template": template,
     }
 
 
@@ -225,21 +232,22 @@ def render_markdown(job: dict) -> str:
         lines.extend(["## Processing notes", ""])
         lines.extend(["- " + _md(warning) for warning in view["warnings"]])
         lines.append("")
-    lines.extend(["## Meeting notes", ""])
+    template = view["template"]
+    lines.extend(["## " + _md(template["summary_heading"]), ""])
     notes = view["notes"]
     if notes is None:
-        lines.extend(["Meeting notes have not been generated.", ""])
+        lines.extend(["Notes have not been generated for the " + _md(template["name"]) + " template.", ""])
     else:
-        lines.extend([_md(notes.get("overview")) or "No overview was generated.", ""])
-        for key, label in [("decisions", "Decisions"), ("actions", "Action items"),
-                           ("open_questions", "Open questions")]:
-            lines.extend(["### " + label, ""])
+        lines.extend([_md(notes.get("overview")) or "No summary was generated.", ""])
+        for section in template["sections"]:
+            key = section["key"]
+            lines.extend(["### " + _md(section["label"]), ""])
             items = [item for item in notes.get(key, []) or [] if isinstance(item, dict)]
             if not items:
                 lines.extend(["None identified in the generated notes.", ""])
             for item in items:
                 lines.append("- " + (_md(item.get("text")) or "No text provided."))
-                if key == "actions":
+                if section["show_owner_due"]:
                     owner = _speaker(item.get("owner"), view["names"]) if item.get("owner") else "Not specified"
                     lines.append("  - Owner: " + _md(owner) + "; due: " + _md(item.get("due") or "Not specified"))
                 lines.extend(["  - " + _md(_source(item, view["by_id"])), ""])
@@ -293,7 +301,7 @@ def render_docx(job: dict) -> bytes:
 
     core = document.core_properties
     core.title = view["title"]
-    core.subject = "Meeting notes and transcript"
+    core.subject = view["template"]["name"] + " and transcript"
     core.author = "Meeting Studio"
     core.last_modified_by = "Meeting Studio"
     core.comments = ""
@@ -320,24 +328,25 @@ def render_docx(job: dict) -> bytes:
         for warning in view["warnings"]:
             document.add_paragraph(warning, style="List Bullet")
 
-    document.add_heading("Meeting notes", 1)
+    template = view["template"]
+    document.add_heading(template["summary_heading"], 1)
     notes = view["notes"]
     if notes is None:
-        document.add_paragraph("Meeting notes have not been generated.")
+        document.add_paragraph("Notes have not been generated for the " + template["name"] + " template.")
     else:
-        overview = _text(notes.get("overview")).strip() or "No overview was generated."
+        overview = _text(notes.get("overview")).strip() or "No summary was generated."
         for text in overview.split("\n\n"):
             document.add_paragraph(text)
-        for key, label in [("decisions", "Decisions"), ("actions", "Action items"),
-                           ("open_questions", "Open questions")]:
-            document.add_heading(label, 2)
+        for section_info in template["sections"]:
+            key = section_info["key"]
+            document.add_heading(section_info["label"], 2)
             items = [item for item in notes.get(key, []) or [] if isinstance(item, dict)]
             if not items:
                 document.add_paragraph("None identified in the generated notes.")
             for item in items:
                 paragraph = document.add_paragraph(_text(item.get("text")) or "No text provided.", style="List Bullet")
                 paragraph.paragraph_format.keep_with_next = True
-                if key == "actions":
+                if section_info["show_owner_due"]:
                     owner = _speaker(item.get("owner"), view["names"]) if item.get("owner") else "Not specified"
                     paragraph = document.add_paragraph()
                     paragraph.paragraph_format.left_indent = Inches(0.25)
