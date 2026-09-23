@@ -22,6 +22,17 @@ def test_catalog_contains_exact_template_sections_and_legacy_default(assignment_
     assert get_template(None)["id"] == get_template("unknown")["id"] == "meeting"
 
 
+def test_new_recording_persists_default_template(assignment_api, monkeypatch):
+    server, client = assignment_api
+    monkeypatch.setattr(server, "speech_models_status", lambda: {"ready": True})
+    response = client.post("/api/jobs", files=[("files", ("synthetic.wav", b"synthetic audio", "audio/wav"))])
+    assert response.status_code == 200
+    job = response.json()["jobs"][0]
+    assert job["notes_template"] == "meeting"
+    metadata = json.loads((server.JOBS_DIR / job["id"] / "job.json").read_text(encoding="utf-8"))
+    assert metadata["notes_template"] == "meeting"
+
+
 def test_template_preference_persists_without_changing_transcript_and_can_revert(assignment_job):
     server, client, original = assignment_job
     url = f"/api/jobs/{original['id']}"
